@@ -1,8 +1,6 @@
 from pydub import AudioSegment
-import io
 import random
-import math
-from formula import extended_vigenere_encrypt, extended_vigenere_decrypt, convert_key_to_seed, calculate_psnr_signal
+from formula import extended_vigenere_encrypt, extended_vigenere_decrypt, convert_key_to_seed, calculate_audio_psnr
 
 def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_lsb: int = 1, 
                  use_encryption: bool = False, use_random_start: bool = False, 
@@ -263,97 +261,6 @@ def extract_message(stego_audio_path: str, stego_key: str, n_lsb: int = 1,
             'error': str(e)
         }
 
-def calculate_audio_psnr(original_data: bytearray, modified_data: bytearray) -> float:
-    """
-    Menghitung PSNR antara audio asli dan audio yang telah dimodifikasi.
-    
-    Args:
-        original_data (bytearray): Data audio asli
-        modified_data (bytearray): Data audio yang telah dimodifikasi
-        
-    Returns:
-        float: Nilai PSNR dalam dB
-    """
-    if len(original_data) != len(modified_data):
-        raise ValueError("Panjang data audio harus sama")
-    
-    # Hitung MSE (Mean Square Error)
-    mse = 0.0
-    for i in range(len(original_data)):
-        diff = int(original_data[i]) - int(modified_data[i])
-        mse += diff * diff
-    
-    mse /= len(original_data)
-    
-    if mse == 0:
-        return float('inf')  # Perfect quality
-    
-    # Hitung PSNR
-    max_value = 255.0  # Untuk 8-bit audio samples
-    psnr = 20 * math.log10(max_value / math.sqrt(mse))
-    
-    return psnr
-
-def get_raw_pcm_data_from_mp3(mp3_path):
-    """
-    Decodes an MP3 file and returns its raw PCM data as a bytes object.
-    
-    Args:
-        mp3_path (str): The path to the input MP3 file.
-        
-    Returns:
-        tuple: (raw_data, audio_info) - Raw audio data and audio information
-    """
-    try:
-        # 1. Load the MP3 file
-        audio = AudioSegment.from_mp3(mp3_path)
-        
-        # 2. Get raw PCM data
-        raw_data = audio.raw_data
-        
-        # 3. Audio information
-        audio_info = {
-            'channels': audio.channels,
-            'sample_width': audio.sample_width,
-            'frame_rate': audio.frame_rate,
-            'duration': len(audio) / 1000.0  # in seconds
-        }
-        
-        print(f"Successfully decoded '{mp3_path}'")
-        print(f"Channels: {audio_info['channels']}")
-        print(f"Sample Width: {audio_info['sample_width']} bytes")
-        print(f"Frame Rate: {audio_info['frame_rate']} Hz")
-        print(f"Duration: {audio_info['duration']:.2f} seconds")
-        
-        return raw_data, audio_info
-
-    except Exception as e:
-        print(f"Error processing MP3 file: {e}")
-        return None, None
-
-def process(cover_object, secret_bytes: bytes, starting_byte: int, encrypt: bool, lsb: int, stego_key: str):
-    """
-    Fungsi wrapper untuk kompatibilitas dengan kode yang sudah ada.
-    Ini adalah interface lama yang masih bisa digunakan.
-    """
-    # Konversi parameter ke format baru
-    secret_message = secret_bytes.decode('utf-8', errors='ignore')
-    
-    # Panggil fungsi embed_message yang baru
-    result = embed_message(
-        cover_audio_path=cover_object,  # Asumsi ini adalah path file
-        secret_message=secret_message,
-        stego_key=stego_key,
-        n_lsb=lsb,
-        use_encryption=encrypt,
-        use_random_start=(starting_byte != 0)
-    )
-    
-    if result['success']:
-        return result['starting_position']
-    else:
-        raise Exception(result['error'])
-
 def get_capacity(audio_path: str, n_lsb: int = 1) -> dict:
     """
     Menghitung kapasitas maksimum pesan yang dapat disembunyikan dalam audio.
@@ -411,7 +318,7 @@ def get_capacity(audio_path: str, n_lsb: int = 1) -> dict:
 #         use_random_start=True
 #     )
 #     print("Embed result:", result)
-#     
+    
 #     # Test extraction
 #     if result['success']:
 #         extract_result = extract_message(

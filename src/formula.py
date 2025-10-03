@@ -44,32 +44,37 @@ def extended_vigenere_decrypt(ciphertext, key):
         
     return plaintext
 
-
-# PSNR
-def calculate_psnr_signal(p_original: float, p_stego: float):
+def calculate_audio_psnr(original_data: bytearray, modified_data: bytearray) -> float:
     """
-    Menghitung PSNR berdasarkan kekuatan sinyal asli (P_original) dan
-    sinyal steganografi (P_stego), sesuai dengan rumus yang diberikan.
-
-    Args:
-        p_original (float): Kekuatan sinyal asli.
-        p_stego (float): Kekuatan sinyal setelah steganografi.
-
-    Returns:
-        float: Nilai PSNR dalam dB.
-    """
-    # Tangani kasus di mana penyebutnya nol untuk menghindari error
-    denominator = p_stego**2 + p_original**2 - 2 * p_stego * p_original
+    Menghitung PSNR antara audio asli dan audio yang telah dimodifikasi.
     
-    # Periksa jika penyebut sangat dekat dengan nol
-    if abs(denominator) < 1e-9: # Menggunakan toleransi kecil untuk floating point
-        return float('inf')
+    Args:
+        original_data (bytearray): Data audio asli
+        modified_data (bytearray): Data audio yang telah dimodifikasi
+        
+    Returns:
+        float: Nilai PSNR dalam dB
+    """
+    if len(original_data) != len(modified_data):
+        raise ValueError("Panjang data audio harus sama")
+    
+    # Hitung MSE (Mean Square Error)
+    mse = 0.0
+    for i in range(len(original_data)):
+        diff = int(original_data[i]) - int(modified_data[i])
+        mse += diff * diff
+    
+    mse /= len(original_data)
+    
+    if mse == 0:
+        return float('inf')  # Perfect quality
+    
+    # Hitung PSNR
+    max_value = 255.0  # Untuk 8-bit audio samples
+    psnr = 20 * math.log10(max_value / math.sqrt(mse))
+    
+    return psnr
 
-    # Hitung PSNR sesuai rumus
-    psnr_value = 10 * math.log10((p_stego**2) / denominator)
-    return psnr_value
-
-# Key to seed
 def convert_key_to_seed(key: str):
     total = 0
     # Summing the ASCII number of each character
