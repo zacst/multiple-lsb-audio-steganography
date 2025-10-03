@@ -108,6 +108,8 @@ def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_
         )
         
         # 9. Export ke file output
+        if not output_path.lower().endswith(".wav"):
+            raise ValueError("Output path harus berformat .wav")
         stego_audio.export(output_path, format="wav")
         
         # 10. Hitung PSNR
@@ -307,25 +309,25 @@ def get_capacity(audio_path: str, n_lsb: int = 1) -> dict:
         }
 
 # Testing functions (uncomment untuk testing)
-# if __name__ == "__main__":
-#     # Test embedding
-#     result = embed_message(
-#         cover_audio_path="../assets/sample_audio.mp3",
-#         secret_message="Hello, this is a secret message!",
-#         stego_key="mykey123",
-#         n_lsb=2,
-#         use_encryption=True,
-#         use_random_start=True
-#     )
-#     print("Embed result:", result)
+if __name__ == "__main__":
+    # Test embedding
+    result = embed_message(
+        cover_audio_path="../assets/sample_audio.mp3",
+        secret_message="Hello, this is a secret message!",
+        stego_key="mykey123",
+        n_lsb=2,
+        use_encryption=True,
+        use_random_start=True
+    )
+    print("Embed result:", result)
     
-#     # Test extraction
-#     if result['success']:
-#         extract_result = extract_message(
-#             stego_audio_path=result['output_path'],
-#             stego_key="mykey123",
-#             n_lsb=2,
-#             use_encryption=True,
-#             use_random_start=True
-#         )
-#         print("Extract result:", extract_result)
+    # Test extraction
+    if result['success']:
+        extract_result = extract_message(
+            stego_audio_path=result['output_path'],
+            stego_key="mykey123",
+            n_lsb=2,
+            use_encryption=True,
+            use_random_start=True
+        )
+        print("Extract result:", extract_result)
