@@ -1,333 +1,229 @@
 from pydub import AudioSegment
 import random
+# Asumsikan fungsi lain Anda berada di file 'formula.py'
 from formula import extended_vigenere_encrypt, extended_vigenere_decrypt, convert_key_to_seed, calculate_audio_psnr
 
+# Ukuran header metadata (panjang pesan) dalam byte.
+METADATA_LENGTH_BYTES = 4 
+
+def _embed_bits(raw_data, bits_to_embed, start_byte_index, n_lsb):
+    """Fungsi pembantu untuk menyisipkan bit ke dalam raw_data."""
+    bit_index = 0
+    total_bits = len(bits_to_embed)
+    
+    # Hitung berapa banyak byte audio yang dibutuhkan
+    bytes_needed = (total_bits + n_lsb - 1) // n_lsb
+    
+    for i in range(bytes_needed):
+        byte_index = start_byte_index + i
+        if byte_index >= len(raw_data):
+            break
+            
+        sample_byte = raw_data[byte_index]
+        mask = (0xFF << n_lsb) & 0xFF
+        sample_byte &= mask
+        
+        for j in range(n_lsb):
+            if bit_index < total_bits:
+                sample_byte |= (bits_to_embed[bit_index] << (n_lsb - 1 - j))
+                bit_index += 1
+        
+        raw_data[byte_index] = sample_byte
+
+def _extract_bits(raw_data, num_bits_to_extract, start_byte_index, n_lsb):
+    """Fungsi pembantu untuk mengekstrak bit dari raw_data."""
+    extracted_bits = []
+    
+    # Hitung berapa banyak byte audio yang perlu dibaca
+    bytes_to_read = (num_bits_to_extract + n_lsb - 1) // n_lsb
+    
+    for i in range(bytes_to_read):
+        byte_index = start_byte_index + i
+        if byte_index >= len(raw_data):
+            break
+
+        sample_byte = raw_data[byte_index]
+        for j in range(n_lsb):
+            if len(extracted_bits) < num_bits_to_extract:
+                bit = (sample_byte >> (n_lsb - 1 - j)) & 1
+                extracted_bits.append(bit)
+                
+    return extracted_bits
+
+def _bits_to_bytes(bits):
+    """Mengonversi list of bits menjadi bytearray."""
+    b_array = bytearray()
+    for i in range(0, len(bits), 8):
+        byte_chunk = bits[i:i+8]
+        if len(byte_chunk) < 8: continue # Abaikan bit sisa jika tidak kelipatan 8
+        byte_val = 0
+        for bit in byte_chunk:
+            byte_val = (byte_val << 1) | bit
+        b_array.append(byte_val)
+    return b_array
+
+def _bytes_to_bits(byte_data):
+    """Mengonversi bytes menjadi list of bits."""
+    bits = []
+    for byte in byte_data:
+        for i in range(8):
+            bits.append((byte >> (7 - i)) & 1)
+    return bits
+
 def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_lsb: int = 1, 
-                 use_encryption: bool = False, use_random_start: bool = False, 
-                 output_path: str = "output_stego.wav") -> dict:
+                  use_encryption: bool = False, use_random_start: bool = False, 
+                  output_path: str = "output_stego.wav") -> dict:
     """
-    Menyembunyikan pesan secret ke dalam audio cover menggunakan metode multiple-LSB.
-    
-    Args:
-        cover_audio_path (str): Path ke file audio cover (MP3)
-        secret_message (str): Pesan yang akan disembunyikan
-        stego_key (str): Kunci steganografi untuk randomisasi
-        n_lsb (int): Jumlah bit LSB yang digunakan (1-4)
-        use_encryption (bool): Apakah menggunakan enkripsi Extended Vigenère
-        use_random_start (bool): Apakah menggunakan starting point random
-        output_path (str): Path output file audio hasil steganografi
-    
-    Returns:
-        dict: Informasi hasil proses steganografi
+    Menyembunyikan pesan rahasia:
+    1. Header panjang pesan disisipkan di awal file (posisi tetap).
+    2. Isi pesan disisipkan di posisi acak (jika diaktifkan).
     """
     try:
-        # 1. Load dan konversi audio cover
-        audio = AudioSegment.from_mp3(cover_audio_path)
+        audio = AudioSegment.from_file(cover_audio_path)
         raw_data = bytearray(audio.raw_data)
         
-        # 2. Enkripsi pesan jika diperlukan
         if use_encryption:
-            encrypted_message = extended_vigenere_encrypt(secret_message, stego_key)
-            message_to_hide = encrypted_message
+            message_to_hide = extended_vigenere_encrypt(secret_message, stego_key)
         else:
             message_to_hide = secret_message
         
-        # 3. Konversi pesan ke bytes dan tambahkan delimiter
         message_bytes = message_to_hide.encode('utf-8')
-        # Tambahkan delimiter untuk menandai akhir pesan
-        delimiter = b'\x00\x00\x00\x00'  # 4 bytes null sebagai delimiter
-        message_bytes += delimiter
         
-        # 4. Hitung jumlah bit yang diperlukan
-        total_bits_needed = len(message_bytes) * 8
-        max_bits_available = len(raw_data) * n_lsb
+        # 1. Siapkan header dan data pesan
+        message_len = len(message_bytes)
+        len_bytes = message_len.to_bytes(METADATA_LENGTH_BYTES, 'big')
         
-        if total_bits_needed > max_bits_available:
-            return {
-                'success': False,
-                'error': f'Pesan terlalu panjang! Diperlukan {total_bits_needed} bit, tersedia {max_bits_available} bit'
-            }
+        header_bits = _bytes_to_bits(len_bytes)
+        message_bits = _bytes_to_bits(message_bytes)
+
+        # 2. Hitung kebutuhan ruang dan periksa kapasitas
+        header_bytes_needed = (len(header_bits) + n_lsb - 1) // n_lsb
+        message_bytes_needed = (len(message_bits) + n_lsb - 1) // n_lsb
         
-        # 5. Tentukan posisi starting point
-        if use_random_start:
-            seed = convert_key_to_seed(stego_key)
-            random.seed(seed)
-            max_start = len(raw_data) - (total_bits_needed // n_lsb)
-            starting_pos = random.randint(0, max_start)
-        else:
-            starting_pos = 0
-        
-        # 6. Simpan data audio asli untuk perhitungan PSNR
+        if header_bytes_needed + message_bytes_needed > len(raw_data):
+            return {'success': False, 'error': 'Pesan terlalu panjang untuk kapasitas audio.'}
+
         original_data = raw_data.copy()
+
+        # 3. Sisipkan header di posisi tetap (awal file)
+        _embed_bits(raw_data, header_bits, 0, n_lsb)
         
-        # 7. Embed pesan menggunakan multiple-LSB
-        bit_index = 0
-        byte_index = 0
+        # 4. Tentukan posisi awal untuk isi pesan
+        if use_random_start:
+            random.seed(convert_key_to_seed(stego_key))
+            # Pastikan posisi acak tidak menimpa header
+            max_start = len(raw_data) - message_bytes_needed
+            # Pesan harus dimulai setelah blok header
+            min_start = header_bytes_needed 
+            if min_start >= max_start:
+                # Jika tidak ada ruang lagi, letakkan tepat setelah header
+                starting_pos = min_start
+            else:
+                starting_pos = random.randint(min_start, max_start)
+        else:
+            # Jika tidak acak, letakkan tepat setelah header
+            starting_pos = header_bytes_needed
+            
+        # 5. Sisipkan isi pesan di posisi yang telah ditentukan
+        _embed_bits(raw_data, message_bits, starting_pos, n_lsb)
         
-        for i in range(starting_pos, len(raw_data)):
-            if byte_index >= len(message_bytes):
-                break
-                
-            # Ambil byte dari pesan
-            message_byte = message_bytes[byte_index]
-            
-            # Ambil n_lsb bits dari message_byte
-            bits_to_embed = []
-            for j in range(n_lsb):
-                if bit_index + j < 8:
-                    bit = (message_byte >> (7 - (bit_index + j))) & 1
-                    bits_to_embed.append(bit)
-                else:
-                    break
-            
-            # Modifikasi LSB dari sample audio
-            sample_byte = raw_data[i]
-            
-            # Clear n LSB bits
-            mask = 0xFF << n_lsb
-            sample_byte = sample_byte & mask
-            
-            # Set new LSB bits
-            for j, bit in enumerate(bits_to_embed):
-                sample_byte |= (bit << (n_lsb - 1 - j))
-            
-            raw_data[i] = sample_byte
-            
-            # Update indices
-            bit_index += len(bits_to_embed)
-            if bit_index >= 8:
-                bit_index = 0
-                byte_index += 1
-        
-        # 8. Buat audio segment baru dengan data yang sudah dimodifikasi
-        stego_audio = AudioSegment(
-            data=bytes(raw_data),
-            sample_width=audio.sample_width,
-            frame_rate=audio.frame_rate,
-            channels=audio.channels
-        )
-        
-        # 9. Export ke file output
-        if not output_path.lower().endswith(".wav"):
-            raise ValueError("Output path harus berformat .wav")
+        stego_audio = AudioSegment(data=bytes(raw_data), sample_width=audio.sample_width, frame_rate=audio.frame_rate, channels=audio.channels)
         stego_audio.export(output_path, format="wav")
         
-        # 10. Hitung PSNR
         psnr_value = calculate_audio_psnr(original_data, raw_data)
         
-        return {
-            'success': True,
-            'output_path': output_path,
-            'message_length': len(secret_message),
-            'encrypted': use_encryption,
-            'n_lsb': n_lsb,
-            'starting_position': starting_pos,
-            'psnr': psnr_value,
-            'audio_info': {
-                'channels': audio.channels,
-                'sample_width': audio.sample_width,
-                'frame_rate': audio.frame_rate,
-                'duration': len(audio) / 1000.0  # in seconds
-            }
-        }
+        return {'success': True, 'output_path': output_path, 'message_length': len(secret_message), 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'psnr': psnr_value}
         
     except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        return {'success': False, 'error': str(e)}
 
 def extract_message(stego_audio_path: str, stego_key: str, n_lsb: int = 1, 
-                   use_encryption: bool = False, use_random_start: bool = False) -> dict:
+                    use_encryption: bool = False, use_random_start: bool = False) -> dict:
     """
-    Mengekstrak pesan secret dari audio yang mengandung steganografi.
-    
-    Args:
-        stego_audio_path (str): Path ke file audio yang mengandung steganografi
-        stego_key (str): Kunci steganografi untuk dekripsi dan randomisasi
-        n_lsb (int): Jumlah bit LSB yang digunakan (1-4)
-        use_encryption (bool): Apakah pesan dienkripsi dengan Extended Vigenère
-        use_random_start (bool): Apakah menggunakan starting point random
-    
-    Returns:
-        dict: Hasil ekstraksi pesan
+    Mengekstrak pesan rahasia:
+    1. Membaca header dari awal file untuk mengetahui panjang pesan.
+    2. Menghitung posisi pesan (acak/tetap) dan mengekstraknya.
     """
     try:
-        # 1. Load audio steganografi
         audio = AudioSegment.from_file(stego_audio_path)
         raw_data = bytearray(audio.raw_data)
         
-        # 2. Tentukan posisi starting point (sama seperti saat embed)
+        # 1. Ekstrak header dari posisi tetap (awal file) untuk mendapatkan panjang pesan
+        header_bits_to_extract = METADATA_LENGTH_BYTES * 8
+        extracted_header_bits = _extract_bits(raw_data, header_bits_to_extract, 0, n_lsb)
+        
+        header_bytes = _bits_to_bytes(extracted_header_bits)
+        if len(header_bytes) < METADATA_LENGTH_BYTES:
+            return {'success': False, 'error': 'Gagal membaca header, file mungkin rusak atau terlalu kecil.'}
+            
+        message_len = int.from_bytes(header_bytes, 'big')
+        
+        # 2. Setelah panjang pesan diketahui, hitung posisi awal isi pesan
+        header_bytes_needed = (header_bits_to_extract + n_lsb - 1) // n_lsb
+        message_bits_to_extract = message_len * 8
+        message_bytes_needed = (message_bits_to_extract + n_lsb - 1) // n_lsb
+
         if use_random_start:
-            seed = convert_key_to_seed(stego_key)
-            random.seed(seed)
-            # Gunakan perhitungan yang sama seperti saat embed
-            # Kita bisa menggunakan max yang besar karena akan stop saat menemukan delimiter
-            max_start = len(raw_data) - 1000  # Buffer untuk delimiter
-            starting_pos = random.randint(0, max_start) if max_start > 0 else 0
+            random.seed(convert_key_to_seed(stego_key))
+            max_start = len(raw_data) - message_bytes_needed
+            min_start = header_bytes_needed
+            if min_start >= max_start:
+                starting_pos = min_start
+            else:
+                starting_pos = random.randint(min_start, max_start)
         else:
-            starting_pos = 0
-        
-        # 3. Ekstrak bits dari LSB dengan algoritma yang konsisten dengan embed
-        delimiter = b'\x00\x00\x00\x00'
-        delimiter_bits = []
-        
-        # Konversi delimiter ke bits untuk deteksi akhir pesan
-        for byte in delimiter:
-            for i in range(8):
-                delimiter_bits.append((byte >> (7 - i)) & 1)
-        
-        extracted_bits = []
-        bit_index = 0
-        byte_reconstruction = []
-        current_byte_bits = []
-        
-        for i in range(starting_pos, len(raw_data)):
-            sample_byte = raw_data[i]
+            starting_pos = header_bytes_needed
             
-            # Ekstrak n_lsb bits dari sample ini
-            sample_bits = []
-            for j in range(n_lsb):
-                bit = (sample_byte >> (n_lsb - 1 - j)) & 1
-                sample_bits.append(bit)
-            
-            # Distribusikan bits ke byte reconstruction
-            for bit in sample_bits:
-                current_byte_bits.append(bit)
-                bit_index += 1
-                
-                # Jika sudah mengumpulkan 8 bits, buat byte
-                if bit_index == 8:
-                    # Buat byte dari 8 bits
-                    byte_value = 0
-                    for k, b in enumerate(current_byte_bits):
-                        byte_value |= (b << (7 - k))
-                    
-                    byte_reconstruction.append(byte_value)
-                    extracted_bits.extend(current_byte_bits)
-                    
-                    # Check untuk delimiter (4 bytes terakhir)
-                    if len(byte_reconstruction) >= 4:
-                        if byte_reconstruction[-4:] == [0, 0, 0, 0]:
-                            # Hapus delimiter dari hasil
-                            byte_reconstruction = byte_reconstruction[:-4]
-                            extracted_bits = extracted_bits[:-32]  # 4 bytes = 32 bits
-                            break
-                    
-                    # Reset untuk byte berikutnya
-                    current_byte_bits = []
-                    bit_index = 0
+        # 3. Ekstrak isi pesan dari posisi yang telah dihitung
+        extracted_message_bits = _extract_bits(raw_data, message_bits_to_extract, starting_pos, n_lsb)
+        message_bytes = _bits_to_bytes(extracted_message_bits)
         
-        # 4. Konversi ke bytes (gunakan hasil byte_reconstruction yang sudah dibuat)
-        message_bytes = bytearray(byte_reconstruction)
-        
-        # 5. Konversi bytes ke string
+        # 4. Dekode dan dekripsi pesan
         try:
             extracted_message = message_bytes.decode('utf-8')
         except UnicodeDecodeError:
-            return {
-                'success': False,
-                'error': 'Gagal mendekode pesan. Pastikan parameter ekstraksi benar.'
-            }
+            return {'success': False, 'error': 'Gagal mendekode pesan. Pastikan kunci dan parameter sudah benar.'}
         
-        # 6. Dekripsi jika diperlukan
         if use_encryption:
-            try:
-                final_message = extended_vigenere_decrypt(extracted_message, stego_key)
-            except Exception as e:
-                return {
-                    'success': False,
-                    'error': f'Gagal mendekripsi pesan: {str(e)}'
-                }
+            final_message = extended_vigenere_decrypt(extracted_message, stego_key)
         else:
             final_message = extracted_message
-        
-        return {
-            'success': True,
-            'message': final_message,
-            'encrypted': use_encryption,
-            'n_lsb': n_lsb,
-            'starting_position': starting_pos,
-            'message_length': len(final_message),
-            'audio_info': {
-                'channels': audio.channels,
-                'sample_width': audio.sample_width,
-                'frame_rate': audio.frame_rate,
-                'duration': len(audio) / 1000.0
-            }
-        }
+            
+        return {'success': True, 'message': final_message, 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'message_length': len(final_message)}
         
     except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        return {'success': False, 'error': str(e)}
 
-def get_capacity(audio_path: str, n_lsb: int = 1) -> dict:
-    """
-    Menghitung kapasitas maksimum pesan yang dapat disembunyikan dalam audio.
-    
-    Args:
-        audio_path (str): Path ke file audio
-        n_lsb (int): Jumlah bit LSB yang digunakan
-        
-    Returns:
-        dict: Informasi kapasitas audio
-    """
-    try:
-        audio = AudioSegment.from_file(audio_path)
-        raw_data_length = len(audio.raw_data)
-        
-        # Kapasitas dalam bit
-        capacity_bits = raw_data_length * n_lsb
-        
-        # Kapasitas dalam bytes (dikurangi 4 bytes untuk delimiter)
-        capacity_bytes = (capacity_bits // 8) - 4
-        
-        # Kapasitas dalam karakter (asumsi UTF-8)
-        capacity_chars = capacity_bytes  # 1 byte per karakter untuk ASCII
-        
-        return {
-            'success': True,
-            'capacity_bits': capacity_bits,
-            'capacity_bytes': capacity_bytes,
-            'capacity_chars': capacity_chars,
-            'audio_length_bytes': raw_data_length,
-            'n_lsb': n_lsb,
-            'audio_info': {
-                'channels': audio.channels,
-                'sample_width': audio.sample_width,
-                'frame_rate': audio.frame_rate,
-                'duration': len(audio) / 1000.0
-            }
-        }
-        
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-# Testing functions (uncomment untuk testing)
+# --- Contoh Penggunaan (Hapus komentar untuk mencoba) ---
 if __name__ == "__main__":
-    # Test embedding
-    result = embed_message(
-        cover_audio_path="../assets/sample_audio.mp3",
-        secret_message="Hello, this is a secret message!",
-        stego_key="mykey123",
+    secret_text = "Ini adalah pesan rahasia baru yang seharusnya berfungsi dengan benar sekarang."
+    
+    # Tes menyisipkan pesan
+    print("--- Proses Penyisipan ---")
+    embed_result = embed_message(
+        cover_audio_path="../assets/sample_audio.mp3", # Pastikan path ini benar
+        secret_message=secret_text,
+        stego_key="kuncisaya123",
         n_lsb=2,
         use_encryption=True,
         use_random_start=True
     )
-    print("Embed result:", result)
+    print("Hasil penyisipan:", embed_result)
     
-    # Test extraction
-    if result['success']:
+    # Tes mengekstrak pesan
+    if embed_result.get('success'):
+        print("\n--- Proses Ekstraksi ---")
         extract_result = extract_message(
-            stego_audio_path=result['output_path'],
-            stego_key="mykey123",
+            stego_audio_path=embed_result['output_path'],
+            stego_key="kuncisaya123",
             n_lsb=2,
             use_encryption=True,
             use_random_start=True
         )
-        print("Extract result:", extract_result)
+        print("Hasil ekstraksi:", extract_result)
+        
+        # Pengecekan keberhasilan yang lebih baik
+        if extract_result.get('success') and extract_result.get('message') == secret_text:
+            print("\nBERHASIL: Pesan asli dan hasil ekstraksi cocok!")
+        else:
+            print("\nGAGAL: Pesan asli dan hasil ekstraksi TIDAK COCOK.")
