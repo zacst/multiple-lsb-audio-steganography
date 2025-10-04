@@ -1,10 +1,6 @@
 import math
 
 def extended_vigenere_encrypt(plaintext_bytes: bytes, key: str) -> bytes:
-    """
-    Mengenkripsi data (bytes) menggunakan Extended Vigenère Cipher.
-    Input dan output harus berupa bytes.
-    """
     key_bytes = key.encode('utf-8')
     ciphertext_bytes = bytearray()
     key_len = len(key_bytes)
@@ -17,10 +13,6 @@ def extended_vigenere_encrypt(plaintext_bytes: bytes, key: str) -> bytes:
     return bytes(ciphertext_bytes)
 
 def extended_vigenere_decrypt(ciphertext_bytes: bytes, key: str) -> bytes:
-    """
-    Mendekripsi data (bytes) menggunakan Extended Vigenère Cipher.
-    Input dan output harus berupa bytes.
-    """
     key_bytes = key.encode('utf-8')
     plaintext_bytes = bytearray()
     key_len = len(key_bytes)
@@ -32,9 +24,7 @@ def extended_vigenere_decrypt(ciphertext_bytes: bytes, key: str) -> bytes:
         
     return bytes(plaintext_bytes)
 
-# ... (fungsi calculate_audio_psnr dan convert_key_to_seed tetap sama) ...
 def calculate_audio_psnr(original_data: bytearray, modified_data: bytearray) -> float:
-    # ... (tidak ada perubahan) ...
     if len(original_data) != len(modified_data):
         raise ValueError("Panjang data audio harus sama")
     mse = sum((int(orig) - int(mod))**2 for orig, mod in zip(original_data, modified_data)) / len(original_data)
@@ -44,5 +34,4 @@ def calculate_audio_psnr(original_data: bytearray, modified_data: bytearray) -> 
     return psnr
 
 def convert_key_to_seed(key: str) -> int:
-    # ... (tidak ada perubahan) ...
     return sum(ord(char) for char in key)
