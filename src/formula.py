@@ -1,83 +1,48 @@
 import math
 
-def extended_vigenere_encrypt(plaintext, key):
+def extended_vigenere_encrypt(plaintext_bytes: bytes, key: str) -> bytes:
     """
-    Mengenkripsi plaintext menggunakan Extended Vigenère Cipher.
+    Mengenkripsi data (bytes) menggunakan Extended Vigenère Cipher.
+    Input dan output harus berupa bytes.
     """
-    ciphertext = ""
-    key = key.encode('utf-8')  # Konversi kunci menjadi bytes
-    index_key = 0
+    key_bytes = key.encode('utf-8')
+    ciphertext_bytes = bytearray()
+    key_len = len(key_bytes)
     
-    for char in plaintext:
-        # Mengenkripsi setiap karakter dengan nilai ASCII-nya
-        # c = (P + K) mod 256
-        p = ord(char)
-        k = key[index_key]
-        c = (p + k) % 256
+    for i, p_byte in enumerate(plaintext_bytes):
+        k_byte = key_bytes[i % key_len]
+        c_byte = (p_byte + k_byte) % 256
+        ciphertext_bytes.append(c_byte)
         
-        ciphertext += chr(c)
-        
-        # Pindah ke karakter kunci berikutnya, kembali ke awal jika sudah habis
-        index_key = (index_key + 1) % len(key)
-        
-    return ciphertext
+    return bytes(ciphertext_bytes)
 
-def extended_vigenere_decrypt(ciphertext, key):
+def extended_vigenere_decrypt(ciphertext_bytes: bytes, key: str) -> bytes:
     """
-    Mendekripsi ciphertext menggunakan Extended Vigenère Cipher.
+    Mendekripsi data (bytes) menggunakan Extended Vigenère Cipher.
+    Input dan output harus berupa bytes.
     """
-    plaintext = ""
-    key = key.encode('utf-8')  # Konversi kunci menjadi bytes
-    index_key = 0
+    key_bytes = key.encode('utf-8')
+    plaintext_bytes = bytearray()
+    key_len = len(key_bytes)
     
-    for char in ciphertext:
-        # Mendekripsi setiap karakter dengan nilai ASCII-nya
-        # p = (C - K + 256) mod 256
-        c = ord(char)
-        k = key[index_key]
-        p = (c - k + 256) % 256
+    for i, c_byte in enumerate(ciphertext_bytes):
+        k_byte = key_bytes[i % key_len]
+        p_byte = (c_byte - k_byte + 256) % 256
+        plaintext_bytes.append(p_byte)
         
-        plaintext += chr(p)
-        
-        # Pindah ke karakter kunci berikutnya, kembali ke awal jika sudah habis
-        index_key = (index_key + 1) % len(key)
-        
-    return plaintext
+    return bytes(plaintext_bytes)
 
+# ... (fungsi calculate_audio_psnr dan convert_key_to_seed tetap sama) ...
 def calculate_audio_psnr(original_data: bytearray, modified_data: bytearray) -> float:
-    """
-    Menghitung PSNR antara audio asli dan audio yang telah dimodifikasi.
-    
-    Args:
-        original_data (bytearray): Data audio asli
-        modified_data (bytearray): Data audio yang telah dimodifikasi
-        
-    Returns:
-        float: Nilai PSNR dalam dB
-    """
+    # ... (tidak ada perubahan) ...
     if len(original_data) != len(modified_data):
         raise ValueError("Panjang data audio harus sama")
-    
-    # Hitung MSE (Mean Square Error)
-    mse = 0.0
-    for i in range(len(original_data)):
-        diff = int(original_data[i]) - int(modified_data[i])
-        mse += diff * diff
-    
-    mse /= len(original_data)
-    
-    if mse == 0:
-        return float('inf')  # Perfect quality
-    
-    # Hitung PSNR
-    max_value = 255.0  # Untuk 8-bit audio samples
+    mse = sum((int(orig) - int(mod))**2 for orig, mod in zip(original_data, modified_data)) / len(original_data)
+    if mse == 0: return float('inf')
+    max_value = 255.0
     psnr = 20 * math.log10(max_value / math.sqrt(mse))
-    
     return psnr
 
-def convert_key_to_seed(key: str):
-    total = 0
-    # Summing the ASCII number of each character
-    for char in key:
-        total += ord(char)
-    return total
+def convert_key_to_seed(key: str) -> int:
+    # ... (tidak ada perubahan) ...
+    return sum(ord(char) for char in key)

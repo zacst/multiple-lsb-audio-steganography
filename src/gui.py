@@ -160,62 +160,61 @@ class SteganographyApp:
             self._execute_extract(audio_file, stego_key, n_lsb, use_encryption, use_random_start)
 
     def _execute_embed(self, audio_file, stego_key, n_lsb, use_encryption, use_random_start):
-        """Handles the complete embedding process."""
+        """Menangani proses penyisipan secara lengkap."""
         secret_data = None
         if self.plaintext_source_var.get() == 'text_mode':
             secret_text = self.secret_text_input.get("1.0", "end-1c")
             if not secret_text:
-                messagebox.showerror("Error", "Secret message cannot be empty.")
+                messagebox.showerror("Error", "Pesan rahasia tidak boleh kosong.")
                 return
-            # For text, we still need to encode it to bytes
+            # Untuk teks, kita tetap harus meng-encode menjadi bytes
             secret_data = secret_text.encode('utf-8')
-        else: # File mode
+        else: # Mode File
             secret_file = self.secret_file_path_var.get()
             if "No file selected" in secret_file or not os.path.exists(secret_file):
-                messagebox.showerror("Error", "Please select a valid secret message file.")
+                messagebox.showerror("Error", "Silakan pilih file pesan rahasia yang valid.")
                 return
             try:
-                # Read the file in BINARY mode ('rb') to handle ANY file type
+                # Baca file dalam mode BINER ('rb') untuk menangani SEMUA jenis file
                 with open(secret_file, 'rb') as f:
                     secret_data = f.read()
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to read secret file:\n{e}")
+                messagebox.showerror("Error", f"Gagal membaca file rahasia:\n{e}")
                 return
 
         if not secret_data:
-            messagebox.showerror("Error", "Secret data is empty.")
+            messagebox.showerror("Error", "Data rahasia kosong.")
             return
 
         output_path = filedialog.asksaveasfilename(
             defaultextension=".wav",
             filetypes=[("WAV files", "*.wav")],
-            title="Save Stego Audio As..."
+            title="Simpan Audio Stego Sebagai..."
         )
         if not output_path:
             return
 
-        # *** IMPORTANT ***
-        # The backend 'embed_message' function now receives raw BYTES in 'secret_data'.
-        # It must be modified to accept bytes directly and NOT call .encode('utf-8') on it.
+        # Kirimkan `secret_data` (yang sudah pasti bytes) ke backend
         result = embed_message(
             cover_audio_path=audio_file,
-            secret_message=secret_data, # Passing bytes directly
+            secret_data=secret_data, # Mengirim bytes secara langsung
             stego_key=stego_key, n_lsb=n_lsb,
             use_encryption=use_encryption, use_random_start=use_random_start,
             output_path=output_path
         )
         
         if result['success']:
-            info = (f"Message embedded successfully!\n\n"
-                    f"Output File: {result['output_path']}\n"
+            info = (f"Data berhasil disisipkan!\n\n"
+                    f"File Output: {result['output_path']}\n"
                     f"PSNR: {result.get('psnr', 'N/A'):.2f} dB\n"
-                    f"Start Position: {result['starting_position']}")
-            messagebox.showinfo("Success", info)
+                    f"Posisi Awal: {result['starting_position']}\n"
+                    f"Ukuran Data: {result.get('data_length_bytes', 'N/A')} bytes")
+            messagebox.showinfo("Sukses", info)
         else:
-            messagebox.showerror("Embedding Failed", result['error'])
+            messagebox.showerror("Penyisipan Gagal", result['error'])
 
     def _execute_extract(self, audio_file, stego_key, n_lsb, use_encryption, use_random_start):
-        """Handles the complete extraction process."""
+        """Menangani proses ekstraksi secara lengkap."""
         result = extract_message(
             stego_audio_path=audio_file,
             stego_key=stego_key, n_lsb=n_lsb,
@@ -223,23 +222,26 @@ class SteganographyApp:
         )
         
         if result['success']:
-            # The result might be text or it might be raw bytes of a file.
-            # We can't always display it. Let's offer to save it.
-            if isinstance(result['message'], bytes):
-                save = messagebox.askyesno(
-                    "Extraction Success",
-                    "Extracted data is not plain text. Do you want to save it to a file?"
-                )
-                if save:
-                    output_path = filedialog.asksaveasfilename(title="Save Extracted File As...")
-                    if output_path:
+            # Hasil ekstraksi sekarang selalu berupa bytes.
+            # Tawarkan pengguna untuk menyimpannya ke file.
+            extracted_data = result['message']
+            
+            save = messagebox.askyesno(
+                "Ekstraksi Berhasil",
+                f"Data berhasil diekstrak ({len(extracted_data)} bytes).\n\n"
+                "Apakah Anda ingin menyimpannya ke sebuah file?"
+            )
+            if save:
+                output_path = filedialog.asksaveasfilename(title="Simpan File Hasil Ekstraksi...")
+                if output_path:
+                    try:
                         with open(output_path, 'wb') as f:
-                            f.write(result['message'])
-                        messagebox.showinfo("Success", f"Extracted file saved to:\n{output_path}")
-            else: # It's a string, we can show it
-                 messagebox.showinfo("Extraction Success", f"Extracted Message:\n\n{result['message']}")
+                            f.write(extracted_data)
+                        messagebox.showinfo("Sukses", f"File hasil ekstraksi disimpan di:\n{output_path}")
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Gagal menyimpan file:\n{e}")
         else:
-            messagebox.showerror("Extraction Failed", result['error'])
+            messagebox.showerror("Ekstraksi Gagal", result['error'])
 
 if __name__ == "__main__":
     root = tk.Tk()

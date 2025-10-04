@@ -70,24 +70,24 @@ def _bytes_to_bits(byte_data):
             bits.append((byte >> (7 - i)) & 1)
     return bits
 
-def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_lsb: int = 1, 
+def embed_message(cover_audio_path: str, secret_data: bytes, stego_key: str, n_lsb: int = 1, 
                   use_encryption: bool = False, use_random_start: bool = False, 
                   output_path: str = "output_stego.wav") -> dict:
     """
-    Menyembunyikan pesan rahasia:
-    1. Header panjang pesan disisipkan di awal file (posisi tetap).
-    2. Isi pesan disisipkan di posisi acak (jika diaktifkan).
+    Menyembunyikan data rahasia (dalam format bytes):
+    1. Header panjang data disisipkan di awal file (posisi tetap).
+    2. Isi data disisipkan di posisi acak (jika diaktifkan).
     """
     try:
         audio = AudioSegment.from_file(cover_audio_path)
         raw_data = bytearray(audio.raw_data)
         
-        if use_encryption:
-            message_to_hide = extended_vigenere_encrypt(secret_message, stego_key)
-        else:
-            message_to_hide = secret_message
+        # TERIMA DATA SEBAGAI BYTES, TIDAK PERLU ENCODE LAGI
+        message_bytes = secret_data
         
-        message_bytes = message_to_hide.encode('utf-8')
+        if use_encryption:
+            # Fungsi enkripsi sekarang juga harus menerima dan mengembalikan bytes
+            message_bytes = extended_vigenere_encrypt(message_bytes, stego_key)
         
         # 1. Siapkan header dan data pesan
         message_len = len(message_bytes)
@@ -101,7 +101,7 @@ def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_
         message_bytes_needed = (len(message_bits) + n_lsb - 1) // n_lsb
         
         if header_bytes_needed + message_bytes_needed > len(raw_data):
-            return {'success': False, 'error': 'Pesan terlalu panjang untuk kapasitas audio.'}
+            return {'success': False, 'error': 'Data rahasia terlalu besar untuk kapasitas audio.'}
 
         original_data = raw_data.copy()
 
@@ -111,17 +111,13 @@ def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_
         # 4. Tentukan posisi awal untuk isi pesan
         if use_random_start:
             random.seed(convert_key_to_seed(stego_key))
-            # Pastikan posisi acak tidak menimpa header
             max_start = len(raw_data) - message_bytes_needed
-            # Pesan harus dimulai setelah blok header
             min_start = header_bytes_needed 
             if min_start >= max_start:
-                # Jika tidak ada ruang lagi, letakkan tepat setelah header
                 starting_pos = min_start
             else:
                 starting_pos = random.randint(min_start, max_start)
         else:
-            # Jika tidak acak, letakkan tepat setelah header
             starting_pos = header_bytes_needed
             
         # 5. Sisipkan isi pesan di posisi yang telah ditentukan
@@ -132,7 +128,8 @@ def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_
         
         psnr_value = calculate_audio_psnr(original_data, raw_data)
         
-        return {'success': True, 'output_path': output_path, 'message_length': len(secret_message), 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'psnr': psnr_value}
+        # Ganti 'message_length' dengan panjang data dalam byte
+        return {'success': True, 'output_path': output_path, 'data_length_bytes': len(secret_data), 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'psnr': psnr_value}
         
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -140,9 +137,9 @@ def embed_message(cover_audio_path: str, secret_message: str, stego_key: str, n_
 def extract_message(stego_audio_path: str, stego_key: str, n_lsb: int = 1, 
                     use_encryption: bool = False, use_random_start: bool = False) -> dict:
     """
-    Mengekstrak pesan rahasia:
-    1. Membaca header dari awal file untuk mengetahui panjang pesan.
-    2. Menghitung posisi pesan (acak/tetap) dan mengekstraknya.
+    Mengekstrak data rahasia (sebagai bytes):
+    1. Membaca header dari awal file untuk mengetahui panjang data.
+    2. Menghitung posisi data (acak/tetap) dan mengekstraknya.
     """
     try:
         audio = AudioSegment.from_file(stego_audio_path)
@@ -178,18 +175,15 @@ def extract_message(stego_audio_path: str, stego_key: str, n_lsb: int = 1,
         extracted_message_bits = _extract_bits(raw_data, message_bits_to_extract, starting_pos, n_lsb)
         message_bytes = _bits_to_bytes(extracted_message_bits)
         
-        # 4. Dekode dan dekripsi pesan
-        try:
-            extracted_message = message_bytes.decode('utf-8')
-        except UnicodeDecodeError:
-            return {'success': False, 'error': 'Gagal mendekode pesan. Pastikan kunci dan parameter sudah benar.'}
-        
+        # 4. Lakukan dekripsi jika perlu (hasilnya tetap bytes)
         if use_encryption:
-            final_message = extended_vigenere_decrypt(extracted_message, stego_key)
+            final_data = extended_vigenere_decrypt(message_bytes, stego_key)
         else:
-            final_message = extracted_message
-            
-        return {'success': True, 'message': final_message, 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'message_length': len(final_message)}
+            final_data = message_bytes
+        
+        # HAPUS PROSES DECODING. KEMBALIKAN SEBAGAI BYTES MENTAH.
+        # GUI akan menangani cara menampilkan/menyimpan data ini.
+        return {'success': True, 'message': final_data, 'encrypted': use_encryption, 'n_lsb': n_lsb, 'starting_position': starting_pos, 'data_length_bytes': len(final_data)}
         
     except Exception as e:
         return {'success': False, 'error': str(e)}
